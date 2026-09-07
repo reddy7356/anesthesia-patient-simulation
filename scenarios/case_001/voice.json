@@ -1,0 +1,12 @@
+{
+  "_comment": "ElevenLabs voice for Ray Alvarez. Replace voice_id with a male voice of roughly 55-60 years, unhurried, mid-Atlantic American. Changing this file affects ONLY case_001.",
+  "voice_id": "21m00Tcm4TlvDq8ikWAM",
+  "model": "eleven_flash_v2_5",
+  "gender": "male",
+  "approximate_age": 58,
+  "voice_settings": {
+    "stability": 0.55,
+    "similarity_boost": 0.75,
+    "speed": 0.95
+  }
+}

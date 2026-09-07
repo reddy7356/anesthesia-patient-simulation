@@ -1,0 +1,13 @@
+# Pinned to the EXACT versions validated in the protected mock-oral system.
+# Do not upgrade without a deliberate, isolated test run.
+anthropic==0.109.1
+livekit-agents==1.6.0
+livekit-api==1.1.0
+livekit-blingfire==1.1.0
+livekit-plugins-elevenlabs==1.6.0
+livekit-plugins-groq==1.6.0
+livekit-plugins-openai==1.6.0
+livekit-plugins-silero==1.6.0
+livekit-protocol==1.1.15
+livekit==1.1.8
+python-dotenv==1.2.2

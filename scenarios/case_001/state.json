@@ -1,0 +1,8 @@
+{
+  "conversation_stage": "before_greeting",
+  "induction_stage": "awake",
+  "oxygen_mask_status": "off",
+  "anxiety": "mild",
+  "pain": "none right now, sore under the right ribs when he eats",
+  "nausea": "none"
+}
