@@ -35,6 +35,19 @@ from app.turn_log import TurnLog
 from mannequin.livekit_room import LiveKitRoomMannequin
 from patient.scenario import load_scenario
 
+# MUST be imported at module level, on the main thread. LiveKit plugins
+# self-register when their module is first imported (Plugin.register_plugin),
+# and that registration raises "Plugins must be registered on the main thread"
+# if it happens inside entrypoint(), which runs in a job worker thread.
+#
+# These were briefly deferred into entrypoint() to make a missing API key fail
+# with a friendlier message; that broke every run with the error above, and the
+# premise was wrong anyway -- the key lookups are inside build_stt()/build_tts(),
+# not at import. The protected mock-oral system imports its plugins at module
+# level for exactly this reason. DO NOT move these into a function.
+from voice.stt import build_placeholder_llm, build_stt  # noqa: E402
+from voice.tts import build_tts  # noqa: E402
+
 logger = logging.getLogger("patient-sim")
 
 
@@ -56,11 +69,6 @@ async def entrypoint(ctx: JobContext) -> None:
     await mannequin.connect()
 
     runtime = PatientRuntime(scenario, TurnLog(LOG_DIR, scenario.scenario_id))
-
-    # Imported late so a missing GROQ/ELEVENLABS key fails in require_env()
-    # with a readable message rather than a KeyError at import time.
-    from voice.stt import build_placeholder_llm, build_stt
-    from voice.tts import build_tts
 
     session = AgentSession(
         stt=build_stt(),

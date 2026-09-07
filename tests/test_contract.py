@@ -166,8 +166,20 @@ def test_salvage_never_speaks_markup() -> None:
 def test_history_keeps_the_contract() -> None:
     print("\n[11/12] assistant history is stored TAGGED, not bare")
     src = (ROOT / "app" / "patient_runtime.py").read_text()
-    check("assistant turn wrapped in <utterance>",
-          '"content": f"<utterance>{spoken}</utterance>"' in src)
+    check("assistant history carries BOTH blocks",
+          'if "<utterance>" in low and "<state>" in low:' in src
+          and 'content = raw.strip()[:1500]' in src)
+    check("fallback history still well-formed",
+          '<state>{{}}</state>' in src)
+    check("turns are serialized before a new one opens",
+          src.count("await self._settle_pending()") == 2)
+    check("close_turn logs its own turn number",
+          'turn=before.get("turn", self.state.turn)' in src)
+    # This wait is dead air in front of the clinician's next answer.
+    import re as _re
+    m = _re.search(r'PSIM_SETTLE_TIMEOUT", "([0-9.]+)"', src)
+    check("settle timeout is a latency budget (<=0.5s)",
+          bool(m) and float(m.group(1)) <= 0.5, m.group(1) if m else "absent")
     llm = (ROOT / "llm" / "claude_client.py").read_text()
     # This model returns HTTP 400 for a prefilled request. Guard the regression.
     check("no assistant prefill sent",
@@ -178,8 +190,34 @@ def test_history_keeps_the_contract() -> None:
     check("retry used on contract miss", "RETRY_NUDGE" in rt)
 
 
+def test_plugins_imported_on_main_thread() -> None:
+    """LiveKit plugins self-register at import. A deferred import inside a
+    function runs on a job worker thread and raises
+    'Plugins must be registered on the main thread' -- crashing every run."""
+    print("\n[12/13] livekit plugin imports are at module level")
+    import ast as _ast
+    offenders = []
+    for py in (ROOT / "app").rglob("*.py"):
+        tree = _ast.parse(py.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            if not isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                continue
+            for sub in _ast.walk(node):
+                mod = ""
+                if isinstance(sub, _ast.ImportFrom):
+                    mod = sub.module or ""
+                elif isinstance(sub, _ast.Import):
+                    mod = ",".join(a.name for a in sub.names)
+                if "livekit.plugins" in mod or mod.startswith(("voice.", "voice")):
+                    offenders.append(f"{py.name}:{node.name}() imports {mod}")
+    check("no plugin import inside a function", not offenders, "; ".join(offenders))
+    src = (ROOT / "app" / "livekit_agent.py").read_text()
+    check("stt imported at module level", "\nfrom voice.stt import" in src)
+    check("tts imported at module level", "\nfrom voice.tts import" in src)
+
+
 def test_no_runtime_import_from_protected_repo() -> None:
-    print("\n[12/12] nothing imports the protected mock-oral system")
+    print("\n[13/13] nothing imports the protected mock-oral system")
     offenders = []
     for py in ROOT.rglob("*.py"):
         if ".venv" in py.parts:
@@ -209,6 +247,7 @@ def main() -> int:
         test_prompt_assembles_with_state,
         test_salvage_never_speaks_markup,
         test_history_keeps_the_contract,
+        test_plugins_imported_on_main_thread,
         test_no_runtime_import_from_protected_repo,
     ):
         fn()
