@@ -85,7 +85,8 @@ What you say out loud. Speakable words only. May be empty.
  "information_already_disclosed": ["short phrases for anything NEW you just told them"],
  "questions_patient_has_asked": ["anything NEW you just asked"],
  "clinician_explanations_received": ["anything NEW they just explained to you"],
- "misunderstandings": ["anything you have got wrong and still believe"]}
+ "misunderstandings": ["anything you have got wrong and still believe"],
+ "resolved_misunderstandings": ["anything above that the clinician has now put right"]}
 </state>
 
 YOUR REPLY MUST BEGIN WITH THE CHARACTERS <utterance> AND NOTHING ELSE.
@@ -165,6 +166,31 @@ def build_system_prompt(
         "\n=== WHAT HAS HAPPENED SO FAR IN THIS CONVERSATION ===\n"
         + state.as_prompt_block()
     )
+
+    # The behaviour layer describes the fade, but a rule buried mid-prompt loses
+    # to the pull of ordinary conversation. Once the state says the drugs are
+    # running, restate it last and in the imperative, where it wins.
+    stage = (state.induction_stage or "").lower()
+    if any(k in stage for k in ("drug", "induction_drugs", "induced", "asleep", "unconscious")):
+        turns_under = state.turns_since_induction
+        if turns_under >= 2:
+            parts.append(
+                "\n!!! THE ANESTHETIC HAS TAKEN EFFECT. YOU ARE ASLEEP. Return an "
+                "EMPTY <utterance>. Say nothing at all, no matter what is said to "
+                "you. Do not acknowledge, do not say goodbye."
+            )
+        elif turns_under == 1:
+            parts.append(
+                "\n!!! THE DRUGS ARE TAKING EFFECT. You are going under. Answer with "
+                "a fragment or a single sound only -- \"Mm.\" \"Okay...\" \"Yeah.\" "
+                "Nothing longer. Do not ask anything. Do not narrate it."
+            )
+        else:
+            parts.append(
+                "\n!!! THE INDUCTION DRUGS ARE GOING IN. Six words at most, slower and "
+                "shorter than you would normally speak. One last thing on your mind is "
+                "allowed, but only one. Do not narrate falling asleep."
+            )
     parts.append(
         "\nSettle these in your head WITHOUT WRITING THEM DOWN, then write only "
         "the two blocks: what did the clinician "

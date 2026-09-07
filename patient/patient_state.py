@@ -103,6 +103,9 @@ class PatientState:
 
     # --- bookkeeping ---
     turn: int = 0
+    # Turns elapsed since induction drugs started. Drives the fade; counted
+    # here rather than asked of the model, which has no reason to track it.
+    turns_since_induction: int = 0
 
     _LIST_FIELDS = (
         "information_already_disclosed",
@@ -118,6 +121,14 @@ class PatientState:
         "pain",
         "nausea",
     )
+
+    _INDUCTION_MARKERS = ("drug", "induced", "asleep", "unconscious")
+
+    def tick_induction(self) -> None:
+        """Advance the fade counter once per turn while the drugs are running."""
+        stage = (self.induction_stage or "").lower()
+        if any(k in stage for k in self._INDUCTION_MARKERS):
+            self.turns_since_induction += 1
 
     def apply(self, delta: dict | None) -> None:
         """Merge one <state> block.
@@ -144,6 +155,27 @@ class PatientState:
                     item = item.strip()
                     if item and item.lower() not in {c.lower() for c in cur}:
                         cur.append(item)
+        self._resolve(delta)
+
+    def _resolve(self, delta: dict) -> None:
+        """Remove misunderstandings the clinician has cleared up.
+
+        The four memory lists are union-only so nothing is ever forgotten by
+        accident -- but a corrected misunderstanding MUST be removable, or the
+        patient keeps believing something he has just been told is wrong.
+        """
+        done = delta.get("resolved_misunderstandings")
+        if isinstance(done, str):
+            done = [done]
+        if not isinstance(done, list):
+            return
+        lowered = {d.strip().lower() for d in done if isinstance(d, str)}
+        if not lowered:
+            return
+        self.misunderstandings = [
+            m for m in self.misunderstandings
+            if not any(d in m.lower() or m.lower() in d for d in lowered)
+        ]
 
     def as_prompt_block(self) -> str:
         """Compact rendering injected into the system prompt each turn."""

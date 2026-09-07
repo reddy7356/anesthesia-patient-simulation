@@ -58,6 +58,7 @@ class PatientRuntime:
     def _open_turn(self, clinician_text: str | None) -> tuple[str, dict]:
         """Queue the clinician turn and build this turn's system prompt."""
         self.state.turn += 1
+        self.state.tick_induction()
         before = self.state.snapshot()
         content = (clinician_text or "").strip()
         if not content:
