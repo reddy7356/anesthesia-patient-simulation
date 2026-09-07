@@ -1,6 +1,6 @@
 {
-  "_comment": "ElevenLabs voice for Ray Alvarez. Replace voice_id with a male voice of roughly 55-60 years, unhurried, mid-Atlantic American. Changing this file affects ONLY case_001.",
-  "voice_id": "21m00Tcm4TlvDq8ikWAM",
+  "_comment": "ElevenLabs voice for Ray Alvarez, chosen by audition on 2026-09-07. Changing this file affects ONLY case_001.",
+  "voice_id": "n0KjgcwdGYWtM83NjeLu",
   "model": "eleven_flash_v2_5",
   "gender": "male",
   "approximate_age": 58,

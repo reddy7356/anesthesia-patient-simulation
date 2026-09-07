@@ -1,5 +1,6 @@
 """Find, audition and assign the ElevenLabs voice for a patient scenario.
 
+    python -m tools.voices check                    # what can this key do?
     python -m tools.voices list                     # your voices, male first
     python -m tools.voices audition <id> [<id>...]  # hear Ray say his own lines
     python -m tools.voices set case_001 <id>        # write it into voice.json
@@ -46,9 +47,59 @@ def _labels(v: dict) -> str:
     return ", ".join(b for b in bits if b)
 
 
+def cmd_check() -> int:
+    """Which ElevenLabs permissions does this key actually have?"""
+    key = _key()
+    print("\n  Checking the ElevenLabs key in .env\n")
+
+    r = httpx.get(f"{API}/voices", headers={"xi-api-key": key}, timeout=30)
+    can_list = r.status_code == 200
+    print(f"  voices_read (list voices) : {'OK' if can_list else 'DENIED  ' + str(r.status_code)}")
+    if not can_list:
+        print(f"      {r.text[:220]}")
+
+    vid = os.environ.get("PSIM_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+    s = httpx.post(
+        f"{API}/text-to-speech/{vid}",
+        headers={"xi-api-key": key, "content-type": "application/json"},
+        json={"text": "Okay.", "model_id": os.environ.get("PSIM_TTS_MODEL", "eleven_flash_v2_5")},
+        timeout=60,
+    )
+    can_speak = s.status_code == 200
+    print(f"  text_to_speech (synthesis): {'OK' if can_speak else 'DENIED  ' + str(s.status_code)}")
+    if not can_speak:
+        print(f"      {s.text[:220]}")
+
+    print()
+    if can_speak and not can_list:
+        print("  Synthesis works, listing does not -- the key is scoped.")
+        print("  The simulation will run fine. You just cannot enumerate voices here.")
+        print("  Get voice IDs from elevenlabs.io -> Voices (each voice has a copyable")
+        print("  Voice ID), then audition them directly:")
+        print("      python -m tools.voices audition <id> <id>\n")
+    elif not can_speak:
+        print("  Synthesis is denied too -- this key cannot drive the patient's voice.")
+        print("  Either enable text_to_speech on it, or issue a new key at")
+        print("  elevenlabs.io -> profile -> API Keys, and put it in .env.")
+        print("  NOTE: the mock oral system uses this same key. If it has been")
+        print("  revoked, that system's voice is broken as well.\n")
+    else:
+        print("  Both permissions present. python -m tools.voices list\n")
+    return 0 if can_speak else 1
+
+
 def cmd_list() -> int:
     r = httpx.get(f"{API}/voices", headers={"xi-api-key": _key()}, timeout=30)
-    r.raise_for_status()
+    if r.status_code != 200:
+        print(f"\n  Cannot list voices: HTTP {r.status_code}")
+        print(f"  {r.text[:300]}\n")
+        print("  This is usually a scoped key -- listing needs the voices_read")
+        print("  permission, which synthesis does not. Confirm with:")
+        print("      python -m tools.voices check\n")
+        print("  You can still audition any voice by ID, copied from")
+        print("  elevenlabs.io -> Voices:")
+        print("      python -m tools.voices audition <id> <id>\n")
+        return 1
     voices = r.json().get("voices", [])
 
     def rank(v: dict) -> tuple:
@@ -150,6 +201,8 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__); return 2
     cmd = argv[1]
+    if cmd == "check":
+        return cmd_check()
     if cmd == "list":
         return cmd_list()
     if cmd == "audition" and len(argv) > 2:
