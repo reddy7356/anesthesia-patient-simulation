@@ -88,6 +88,11 @@ What you say out loud. Speakable words only. May be empty.
  "misunderstandings": ["anything you have got wrong and still believe"]}
 </state>
 
+YOUR REPLY MUST BEGIN WITH THE CHARACTERS <utterance> AND NOTHING ELSE.
+No reasoning, no preamble, no explanation, no blank line, no "Let me think".
+The very first thing you write is the opening tag. Both blocks are always
+present, always in this order, and nothing follows </state>.
+
 The four lists hold only what is NEW this turn -- they are merged with what is
 already remembered, so never repeat earlier entries. Keep entries to a few
 words. The <state> block is internal bookkeeping and is never spoken.
@@ -161,7 +166,8 @@ def build_system_prompt(
         + state.as_prompt_block()
     )
     parts.append(
-        "\nBefore you answer, settle these silently: what did the clinician "
+        "\nSettle these in your head WITHOUT WRITING THEM DOWN, then write only "
+        "the two blocks: what did the clinician "
         "actually just say; what do I understand about it; what have I already "
         "told them; how am I feeling right now; do I need to answer, ask, "
         "clarify, hesitate, or just acknowledge; and what is the SHORTEST "

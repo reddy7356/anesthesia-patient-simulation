@@ -52,7 +52,12 @@ async def run(scenario_id: str) -> int:
             continue
 
         spoken = await rt.respond(line)
-        print(f"  PATIENT > {spoken or '(silence)'}\n")
+        if spoken:
+            print(f"  PATIENT > {spoken}\n")
+        else:
+            print("  PATIENT > (silence)")
+            print(f"  !! empty utterance  stop_reason={rt.claude.last_stop_reason}")
+            print(f"  !! RAW: {rt.last_raw[:500]!r}\n")
 
     print("\n  Encounter ended.")
     if rt.turn_log.path:

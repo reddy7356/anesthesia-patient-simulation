@@ -39,6 +39,25 @@ def strip_tags_for_tts(raw: str) -> str:
     return _ANY_TAG_RE.sub("", text).strip()
 
 
+def salvage_untagged(raw: str) -> str:
+    """Last-resort rescue when the model replies in prose with no contract.
+
+    Only fires when the response contains NO angle bracket and NO brace at all,
+    so it cannot possibly be a state block, a partial tag, or JSON. In that case
+    the whole response is plainly just something the patient said, and speaking
+    it is far better than an unexplained silence in the simulation room.
+
+    Anything with markup in it stays suppressed -- a leaked <state> must never
+    reach TTS, which is the one failure this system cannot have.
+    """
+    s = raw.strip()
+    if not s or "<" in s or ">" in s or "{" in s or "}" in s:
+        return ""
+    if len(s.split()) > 80:  # a wall of prose is a prompt failure, not a patient
+        return ""
+    return s
+
+
 def parse_state_block(raw: str) -> dict | None:
     """Pull the JSON out of <state>...</state>. Returns None if absent/invalid.
 

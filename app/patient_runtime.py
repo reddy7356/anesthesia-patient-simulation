@@ -19,9 +19,11 @@ from typing import AsyncIterator
 from app.config import SOFT_MAX_WORDS, STREAM_TTS
 from app.turn_log import TurnLog
 from app.utterance_stream import UtteranceStreamer
-from llm.claude_client import ClaudePatient
+from llm.claude_client import FALLBACK, RETRY_NUDGE, ClaudePatient
 from patient.patient_prompt import build_system_prompt
-from patient.patient_state import PatientState, parse_state_block, strip_tags_for_tts
+from patient.patient_state import (
+    PatientState, parse_state_block, salvage_untagged, strip_tags_for_tts,
+)
 from patient.scenario import Scenario
 
 logger = logging.getLogger("patient-sim.runtime")
@@ -40,6 +42,7 @@ class PatientRuntime:
         self.claude = ClaudePatient()
         self.turn_log = turn_log
         self.history: list[dict] = []
+        self.last_raw: str = ""
         self.stream_enabled = STREAM_TTS
         # Text input (tools.dryrun) is never a half-heard fragment, so the
         # silence exception is switched off there. Voice keeps it.
@@ -97,7 +100,12 @@ class PatientRuntime:
 
         self._was_silent_last_turn = not spoken
         if spoken:
-            self.history.append({"role": "assistant", "content": spoken})
+            # Store the TAGGED form. Storing bare text taught the model, from its
+            # own examples, that replies do not need tags -- the contract decayed
+            # a few turns in and every later turn came back untagged and silent.
+            self.history.append(
+                {"role": "assistant", "content": f"<utterance>{spoken}</utterance>"}
+            )
             self._trim()
             words = len(spoken.split())
             if words > SOFT_MAX_WORDS:
@@ -118,6 +126,8 @@ class PatientRuntime:
             total_latency_ms=round(total_ms, 1),
             interrupted=interrupted,
             streaming=self.stream_enabled,
+            stop_reason=self.claude.last_stop_reason,
+            raw_response=(raw[:1200] if not spoken else None),
         )
 
     # ------------------------------------------------------------------ turns
@@ -133,10 +143,27 @@ class PatientRuntime:
         llm_ms = (time.monotonic() - t_llm) * 1000.0
 
         spoken = strip_tags_for_tts(raw)
-        if not spoken and "<utterance>" not in raw.lower():
-            # Contract violation: the model answered as prose. Never read raw
-            # output aloud -- it may contain the state block.
-            logger.error("CONTRACT VIOLATION: no <utterance> tag; suppressing turn")
+        self.last_raw = raw
+        if not spoken:
+            spoken = salvage_untagged(raw)
+            if spoken:
+                logger.warning("SALVAGED untagged reply (no markup present): %s", spoken[:120])
+        if not spoken and raw and raw != FALLBACK:
+            # Contract miss with markup in it -- unsafe to salvage, so ask once
+            # more with an explicit correction. Costs latency only on failure.
+            logger.warning("CONTRACT MISS -- retrying once with an explicit nudge")
+            raw = await self.claude.complete(system_prompt + RETRY_NUDGE, self.history)
+            spoken = strip_tags_for_tts(raw) or salvage_untagged(raw)
+            self.last_raw = raw
+        if not spoken:
+            # Silence is almost always a contract failure, not a choice. Record
+            # exactly what came back so it can be diagnosed from the log alone.
+            logger.error(
+                "EMPTY UTTERANCE  stop_reason=%s  has_open_tag=%s  len=%d\n"
+                "  RAW>>> %s <<<",
+                self.claude.last_stop_reason,
+                "<utterance>" in raw.lower(), len(raw), raw[:800],
+            )
         logger.info("PATIENT: %s", spoken or "(silence)")
 
         self._close_turn(raw, spoken, before, clinician_text, llm_ms,

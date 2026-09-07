@@ -147,8 +147,39 @@ def test_prompt_assembles_with_state() -> None:
     check("hidden true-case facts present for the engine", "two cigarettes" in p.lower())
 
 
+def test_salvage_never_speaks_markup() -> None:
+    print("\n[10/12] untagged-prose salvage never leaks a state block")
+    from patient.patient_state import salvage_untagged
+    check("plain prose salvaged",
+          salvage_untagged("Had some soup around eight last night. That's it.")
+          == "Had some soup around eight last night. That's it.")
+    for bad in ('<state>{"anxiety": "high"}</state>',
+                'Okay. <state>{"pain": "none"}',
+                '{"conversation_stage": "greeting"}',
+                'Okay.</utterance>',
+                '<utterance>Okay.'):
+        check(f"suppressed: {bad[:28]!r}", salvage_untagged(bad) == "")
+    check("empty stays empty", salvage_untagged("   ") == "")
+    check("wall of prose suppressed", salvage_untagged("word " * 100) == "")
+
+
+def test_history_keeps_the_contract() -> None:
+    print("\n[11/12] assistant history is stored TAGGED, not bare")
+    src = (ROOT / "app" / "patient_runtime.py").read_text()
+    check("assistant turn wrapped in <utterance>",
+          '"content": f"<utterance>{spoken}</utterance>"' in src)
+    llm = (ROOT / "llm" / "claude_client.py").read_text()
+    # This model returns HTTP 400 for a prefilled request. Guard the regression.
+    check("no assistant prefill sent",
+          '{"role": "assistant", "content": PREFILL}' not in llm)
+    check("prefill failure documented", "does not support" in llm)
+    check("retry nudge available", "RETRY_NUDGE" in llm)
+    rt = (ROOT / "app" / "patient_runtime.py").read_text()
+    check("retry used on contract miss", "RETRY_NUDGE" in rt)
+
+
 def test_no_runtime_import_from_protected_repo() -> None:
-    print("\n[9/9] nothing imports the protected mock-oral system")
+    print("\n[12/12] nothing imports the protected mock-oral system")
     offenders = []
     for py in ROOT.rglob("*.py"):
         if ".venv" in py.parts:
@@ -176,6 +207,8 @@ def main() -> int:
         test_prompt_contains_no_examiner_language,
         test_scenario_loads_and_is_isolated,
         test_prompt_assembles_with_state,
+        test_salvage_never_speaks_markup,
+        test_history_keeps_the_contract,
         test_no_runtime_import_from_protected_repo,
     ):
         fn()

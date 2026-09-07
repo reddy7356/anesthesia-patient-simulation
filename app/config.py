@@ -41,7 +41,7 @@ MODEL = os.environ.get("PSIM_MODEL", "claude-opus-4-8")
 
 # A patient answer is a handful of words plus a small state block. 1500 tokens
 # (the examiner's budget) is wasted latency here.
-MAX_TOKENS = int(os.environ.get("PSIM_MAX_TOKENS", "400"))
+MAX_TOKENS = int(os.environ.get("PSIM_MAX_TOKENS", "1000"))
 
 # --- Scenario --------------------------------------------------------------
 SCENARIO_ID = os.environ.get("PSIM_SCENARIO", "case_001")
