@@ -21,7 +21,16 @@ WORKSPACE = Path(os.environ.get("PSIM_WORKSPACE", Path(__file__).resolve().paren
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(WORKSPACE / ".env")
+    # override=True is deliberate. By default python-dotenv leaves an already
+    # exported shell variable alone -- which is how a stale ~/.zshrc key once
+    # sent the mock oral examiner to the wrong LiveKit project. This project is
+    # fully isolated and PSIM-namespaced, so ITS .env is the single source of
+    # truth for every run, launcher or not. Set PSIM_TRUST_SHELL=1 to invert
+    # this for a one-off (e.g. injecting a key from a secrets manager).
+    load_dotenv(
+        WORKSPACE / ".env",
+        override=os.environ.get("PSIM_TRUST_SHELL", "").strip() not in ("1", "true", "True"),
+    )
 except Exception:  # python-dotenv optional; fall back to ambient env
     pass
 

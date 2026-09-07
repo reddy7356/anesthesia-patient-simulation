@@ -30,7 +30,8 @@ async def run(scenario_id: str) -> int:
 
     scenario = load_scenario(scenario_id, SCENARIOS_DIR)
     rt = PatientRuntime(scenario, TurnLog(LOG_DIR, scenario.scenario_id))
-    rt.stream_enabled = False  # batch path: one clean line per turn
+    rt.stream_enabled = False   # batch path: one clean line per turn
+    rt.allow_silence = False    # you press enter; nothing here is a fragment
 
     print(f"\n  {scenario.title}")
     print("  The patient is on the table. Speak first.")

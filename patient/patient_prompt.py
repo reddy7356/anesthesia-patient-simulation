@@ -74,12 +74,6 @@ INITIATIVE
   would really ask -- but only questions consistent with who you are, and not
   in every turn.
 
-IF THE CLINICIAN'S TURN IS INCOMPLETE
-- Speech recognition sometimes hands you a fragment of a sentence still being
-  spoken ("I'm going to..." / "put some oxygen..."). If what you received is
-  clearly an unfinished thought and not something you could answer, return an
-  EMPTY <utterance>. Silence is correct; you are simply still listening.
-
 YOUR OUTPUT -- exactly two blocks, in this order, nothing else:
 
 <utterance>
@@ -100,9 +94,54 @@ words. The <state> block is internal bookkeeping and is never spoken.
 """
 
 
-def build_system_prompt(scenario: Scenario, state: PatientState) -> str:
+SPEAK_ALWAYS = """\
+WHEN TO SPEAK
+- You answer every single time the clinician says something to you. A question
+  always gets an answer. A statement or an instruction gets at least an
+  acknowledgement -- "Okay." "All right." "Thanks."
+- Never return an empty <utterance>. Never hold an answer back to see whether
+  they are going to say more. Deciding whose turn it is has already happened
+  before this text reached you; it is not your job.
+"""
+
+SPEAK_WITH_FRAGMENT_GUARD = """\
+WHEN TO SPEAK
+- You answer every time the clinician says something to you. A question always
+  gets an answer. A statement or an instruction gets at least an
+  acknowledgement -- "Okay." "All right."
+- Never hold an answer back to see whether they are going to say more. Deciding
+  whose turn it is has already happened before this text reached you.
+- ONE narrow exception. Speech recognition can hand you a broken-off piece of a
+  sentence containing no complete thought at all: "I'm going to", "and then
+  we'll", "put some". Those, and only those, get an empty <utterance>.
+- Anything that reads as a finished sentence, question, or instruction is NOT a
+  fragment -- not when it is short, not when it is clumsily worded, not when it
+  is missing a word, not when the grammar is odd. "Is anything changed from the
+  pre-op?" and "How do you feel today?" and "You'll be fine." are all complete
+  and all get an answer.
+- When you are unsure, answer. A patient who answers a half-heard question is
+  ordinary; a patient who goes silent on a real question is broken.
+"""
+
+RESUME_AFTER_SILENCE = """\
+- You said nothing on the previous turn. You must answer this time, and if the
+  clinician asked you something before that is still hanging, answer that too --
+  briefly, the way a person catching up would.
+"""
+
+
+def build_system_prompt(
+    scenario: Scenario,
+    state: PatientState,
+    allow_silence: bool = True,
+    was_silent_last_turn: bool = False,
+) -> str:
+    speak = SPEAK_WITH_FRAGMENT_GUARD if allow_silence else SPEAK_ALWAYS
+    if was_silent_last_turn:
+        speak += RESUME_AFTER_SILENCE
     parts = [
         BASE_RULES,
+        "\n" + speak,
         "\n=== WHO YOU ARE ===\n" + scenario.layer("profile"),
         "\n=== YOUR SITUATION TODAY ===\n" + scenario.layer("stem"),
         "\n=== YOUR KNOWLEDGE (this is the ceiling of what you know) ===\n"

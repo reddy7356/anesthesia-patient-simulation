@@ -41,6 +41,10 @@ class PatientRuntime:
         self.turn_log = turn_log
         self.history: list[dict] = []
         self.stream_enabled = STREAM_TTS
+        # Text input (tools.dryrun) is never a half-heard fragment, so the
+        # silence exception is switched off there. Voice keeps it.
+        self.allow_silence = True
+        self._was_silent_last_turn = False
 
     # ---------------------------------------------------------------- helpers
 
@@ -59,9 +63,21 @@ class PatientRuntime:
                 "[The anesthesiologist has just walked up to the table and is "
                 "looking at you. They have not said anything yet.]"
             )
-        self.history.append({"role": "user", "content": content})
+        # Keep the transcript strictly alternating. If the patient said nothing
+        # last turn, no assistant message was appended -- appending another user
+        # message would leave two in a row, which reads to the model as a queue
+        # of unanswered questions and produced a one-turn answer lag.
+        if self.history and self.history[-1]["role"] == "user":
+            self.history[-1]["content"] += "\n" + content
+        else:
+            self.history.append({"role": "user", "content": content})
         self._trim()
-        return build_system_prompt(self.scenario, self.state), before
+        prompt = build_system_prompt(
+            self.scenario, self.state,
+            allow_silence=self.allow_silence,
+            was_silent_last_turn=self._was_silent_last_turn,
+        )
+        return prompt, before
 
     def _close_turn(
         self,
@@ -79,6 +95,7 @@ class PatientRuntime:
             logger.warning("No parseable <state> block this turn; state carried forward")
         self.state.apply(delta)
 
+        self._was_silent_last_turn = not spoken
         if spoken:
             self.history.append({"role": "assistant", "content": spoken})
             self._trim()
