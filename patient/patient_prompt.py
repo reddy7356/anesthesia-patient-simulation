@@ -167,6 +167,26 @@ def build_system_prompt(
         + state.as_prompt_block()
     )
 
+    # A question the patient has already asked AND had answered must not come
+    # back. Live run 2026-09-07: Ray asked "will I be sick again?" three times,
+    # the last two word-for-word, after a full answer he had acknowledged. The
+    # questions list was tracking it correctly -- nothing was wired to it. Like
+    # the fade, this only holds when it is stated last and in the imperative.
+    asked = state.questions_patient_has_asked
+    if asked:
+        parts.append(
+            "\n!!! YOU HAVE ALREADY ASKED: " + "; ".join(asked) + ".\n"
+            "Do not ask any of these again. They have been raised, and if the "
+            "clinician answered, the matter is closed for you -- a person does "
+            "not re-ask a question they just got an answer to. If you are still "
+            "uneasy about one, that comes out as a remark, not the same question "
+            "over again: \"I hope that stuff works\" rather than \"will I be sick "
+            "again?\". Never repeat one of your own earlier questions word for "
+            "word under any circumstances. If you have nothing new to ask, say "
+            "something short and ordinary instead -- most turns need no question "
+            "at all."
+        )
+
     # The behaviour layer describes the fade, but a rule buried mid-prompt loses
     # to the pull of ordinary conversation. Once the state says the drugs are
     # running, restate it last and in the imperative, where it wins.

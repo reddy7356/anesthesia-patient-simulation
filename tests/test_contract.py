@@ -144,6 +144,14 @@ def test_prompt_assembles_with_state() -> None:
     check("knowledge boundary included", "ceiling of what you know" in p)
     check("memory injected", "nothing since 8pm last night" in p)
     check("behaviour layer included", "Baseline emotion" in p)
+
+    st2 = PatientState()
+    st2.apply({"questions_patient_has_asked": ["will I be sick again"]})
+    p2 = build_system_prompt(sc, st2)
+    check("answered questions are guarded", "YOU HAVE ALREADY ASKED" in p2)
+    check("verbatim repeat forbidden", "word for word" in p2)
+    check("guard absent when nothing asked",
+          "YOU HAVE ALREADY ASKED" not in build_system_prompt(sc, PatientState()))
     check("hidden true-case facts present for the engine", "two cigarettes" in p.lower())
 
 
