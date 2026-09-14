@@ -44,14 +44,23 @@ if [ -n "$MISSING" ]; then
     echo "" >&2
     echo "ERROR: missing prerequisites:" >&2
     printf '%b\n' "$MISSING" >&2
-    echo "" >&2
-    echo "  macOS:  brew install awscli" >&2
-    echo "  Linux:  curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o a.zip \\" >&2
-    echo "          && unzip -q a.zip && sudo ./aws/install" >&2
-    echo "  Windows: winget install Amazon.AWSCLI   (or use the MSI installer)" >&2
-    echo "" >&2
-    echo "  Then run 'aws configure' and re-run this script." >&2
-    echo "" >&2
+    cat >&2 <<MSG
+
+  FIX IT WITH THE BUNDLED INSTALLER (handles CPU arch, missing unzip,
+  macOS vs Linux, and installing without root):
+
+      ${HERE}/install_aws_cli.sh              # system-wide, uses sudo
+      ${HERE}/install_aws_cli.sh --user       # into ~/.local, no sudo
+
+  On Windows (outside WSL):  winget install Amazon.AWSCLI
+
+  Then:
+      aws configure                   # access key id, secret, region
+      aws sts get-caller-identity     # confirm it works
+
+  ...and re-run this script.
+
+MSG
     exit 2
 fi
 

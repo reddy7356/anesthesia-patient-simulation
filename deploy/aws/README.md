@@ -15,17 +15,29 @@ On your local machine (the one with VS Code and your `.env`):
 
 **1. AWS CLI v2** — `aws --version` should print `aws-cli/2.x`
 
+Use the bundled installer. It detects your CPU architecture, installs `unzip`
+if missing, handles macOS vs Linux, and is safe to re-run:
+
+```bash
+./deploy/aws/install_aws_cli.sh            # system-wide (uses sudo)
+./deploy/aws/install_aws_cli.sh --user     # into ~/.local, no sudo needed
+```
+
+On Windows outside WSL: `winget install Amazon.AWSCLI`
+
+<details>
+<summary>Manual install, if you prefer</summary>
+
 ```bash
 # macOS
 brew install awscli
 
-# Linux
+# Linux x86_64  (use awscli-exe-linux-aarch64.zip on ARM)
+sudo apt-get install -y unzip          # or dnf/yum/apk
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o a.zip
 unzip -q a.zip && sudo ./aws/install && rm -rf a.zip aws
-
-# Windows
-winget install Amazon.AWSCLI
 ```
+</details>
 
 **2. Credentials**
 
