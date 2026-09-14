@@ -90,11 +90,70 @@ pip install -r requirements.txt
 cp .env.example .env         # then fill in the keys
 ```
 
+### Moving keys in without exposing them
+
+`.env` is gitignored and never committed. To get credentials into it without
+the values appearing in a terminal, a chat transcript, or shell history, use
+the importer instead of editing the file by hand:
+
+```bash
+# one key at a time — input is hidden (getpass), nothing is echoed
+.venv/bin/python scripts/import_env.py --set GROQ_API_KEY
+
+# or bulk-import a KEY=VALUE file you dropped in the sandbox,
+# then shred the source
+.venv/bin/python scripts/import_env.py --from /mnt/aidrive/psim_env.txt
+shred -u /mnt/aidrive/psim_env.txt
+
+# confirm what is loaded — secrets shown only as length + sha256 prefix
+.venv/bin/python scripts/import_env.py --check
+```
+
+The importer writes `.env` with mode `0600`, keeps existing comments and
+unrecognized keys, ignores anything that is not a known `PSIM_*`/provider
+variable, and prints secrets only as a masked fingerprint. Never paste a live
+key into a chat message or a `git`-tracked file.
+
+`--set` requires a real terminal. Where there is no tty it refuses rather than
+falling back to clear-text input, so use `--from` in that case.
+
+## Running on your own AWS host
+
+To run the worker somewhere persistent with credentials in KMS-encrypted SSM
+rather than a local file, see [`deploy/aws/README.md`](deploy/aws/README.md):
+
+```bash
+./deploy/aws/deploy.sh      psim us-east-1 YOUR_KEYPAIR   # one EC2 instance
+./deploy/aws/put_secrets.sh psim us-east-1 .env           # keys -> encrypted SSM
+```
+
+Keys travel from your machine to AWS directly; nothing sensitive appears in the
+CloudFormation template, in EC2 user-data, or in this repository. Note that
+`console` mode cannot work on a headless host (no mic or speaker) — use `dev`
+mode or `tools.dryrun` there.
+
 ## Test it by typing first (no sim room needed)
 
 ```bash
 .venv/bin/python -m tools.dryrun case_001
 ```
+
+### Typed path on a server (lightest possible install)
+
+`tools.dryrun` imports neither `livekit` nor `sounddevice`, so the whole voice
+stack is optional when you only want to type to the patient. On a headless
+Linux box this is the quickest way in, and it needs no system audio library:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dryrun.txt   # 2 packages, not 80+
+cp .env.example .env && chmod 600 .env             # then add ANTHROPIC_API_KEY
+.venv/bin/python -m tools.dryrun case_001
+```
+
+Only `ANTHROPIC_API_KEY` is required for this; STT/TTS keys are unused until
+you run voice. Install the full `requirements.txt` when you move to `dev` or
+`console` mode.
 
 Type a clinician line, read the patient's reply. `/state` shows the hidden
 state. This is where humanization is validated cheaply — answer length,

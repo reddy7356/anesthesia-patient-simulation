@@ -75,20 +75,41 @@ LOG_DIR = Path(os.environ.get("PSIM_LOG_DIR", WORKSPACE / "logs"))
 # in the run log instead of only in the room.
 SOFT_MAX_WORDS = int(os.environ.get("PSIM_SOFT_MAX_WORDS", "45"))
 
-REQUIRED_ENV = (
-    "ANTHROPIC_API_KEY",
+# Claude is the patient's reasoning; nothing runs without it.
+REQUIRED_ENV = ("ANTHROPIC_API_KEY",)
+
+# Only needed once audio is involved: Groq transcribes the clinician,
+# ElevenLabs speaks the patient. The typed path (tools.dryrun) touches
+# neither, so demanding them there blocks a run that would work fine.
+REQUIRED_ENV_VOICE = (
     "GROQ_API_KEY",
     "ELEVENLABS_API_KEY",
 )
 
 
-def require_env() -> None:
-    missing = [k for k in REQUIRED_ENV if not os.environ.get(k)]
+def require_env(voice: bool = True) -> None:
+    """Check credentials for the path about to run.
+
+    voice=True  (default) -- LiveKit/console: needs Claude + STT + TTS.
+    voice=False           -- typed dryrun: needs Claude only.
+
+    The default stays strict so a real simulation still fails fast on the
+    console rather than halfway through an encounter.
+    """
+    required = REQUIRED_ENV + (REQUIRED_ENV_VOICE if voice else ())
+    missing = [k for k in required if not os.environ.get(k)]
     if missing:
+        hint = ""
+        if not voice:
+            hint = (
+                "\nThe typed path needs only ANTHROPIC_API_KEY."
+                "\nSee requirements-dryrun.txt for the minimal install."
+            )
         raise RuntimeError(
             "Missing required environment variables: "
             + ", ".join(missing)
             + f"\nSet them in {WORKSPACE / '.env'} (copy .env.example)."
+            + hint
         )
 
 
