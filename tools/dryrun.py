@@ -24,7 +24,8 @@ from patient.scenario import load_scenario
 
 
 async def run(scenario_id: str) -> int:
-    require_env()
+    # Typed path: no STT, no TTS, so only the Claude key is required.
+    require_env(voice=False)
     setup_file_logging()
     logging.getLogger().setLevel(logging.WARNING)  # keep the transcript readable
 

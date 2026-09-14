@@ -138,6 +138,23 @@ mode or `tools.dryrun` there.
 .venv/bin/python -m tools.dryrun case_001
 ```
 
+### Typed path on a server (lightest possible install)
+
+`tools.dryrun` imports neither `livekit` nor `sounddevice`, so the whole voice
+stack is optional when you only want to type to the patient. On a headless
+Linux box this is the quickest way in, and it needs no system audio library:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dryrun.txt   # 2 packages, not 80+
+cp .env.example .env && chmod 600 .env             # then add ANTHROPIC_API_KEY
+.venv/bin/python -m tools.dryrun case_001
+```
+
+Only `ANTHROPIC_API_KEY` is required for this; STT/TTS keys are unused until
+you run voice. Install the full `requirements.txt` when you move to `dev` or
+`console` mode.
+
 Type a clinician line, read the patient's reply. `/state` shows the hidden
 state. This is where humanization is validated cheaply — answer length,
 memory, paraphrase consistency, the knowledge boundary. Only book the sim room
