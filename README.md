@@ -114,6 +114,24 @@ unrecognized keys, ignores anything that is not a known `PSIM_*`/provider
 variable, and prints secrets only as a masked fingerprint. Never paste a live
 key into a chat message or a `git`-tracked file.
 
+`--set` requires a real terminal. Where there is no tty it refuses rather than
+falling back to clear-text input, so use `--from` in that case.
+
+## Running on your own AWS host
+
+To run the worker somewhere persistent with credentials in KMS-encrypted SSM
+rather than a local file, see [`deploy/aws/README.md`](deploy/aws/README.md):
+
+```bash
+./deploy/aws/deploy.sh      psim us-east-1 YOUR_KEYPAIR   # one EC2 instance
+./deploy/aws/put_secrets.sh psim us-east-1 .env           # keys -> encrypted SSM
+```
+
+Keys travel from your machine to AWS directly; nothing sensitive appears in the
+CloudFormation template, in EC2 user-data, or in this repository. Note that
+`console` mode cannot work on a headless host (no mic or speaker) — use `dev`
+mode or `tools.dryrun` there.
+
 ## Test it by typing first (no sim room needed)
 
 ```bash
