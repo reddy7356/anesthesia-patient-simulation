@@ -39,12 +39,58 @@ KEYS=(
     LIVEKIT_API_SECRET
 )
 
-command -v aws >/dev/null 2>&1 || { echo "ERROR: aws CLI not found." >&2; exit 2; }
+# Check the LOCAL file before touching AWS: a missing .env is the most common
+# mistake and the operator should hear about it without first having to fix
+# unrelated AWS credential problems.
+if [ "$ENV_FILE" != "--check" ] && [ ! -f "$ENV_FILE" ]; then
+    cat >&2 <<MSG
+
+ERROR: no such file: ${ENV_FILE}
+
+  A fresh clone has no .env -- it is gitignored deliberately, so that a
+  credential can never end up in the repository. Create one here:
+
+    cp .env.example .env
+    chmod 600 .env
+
+  Then fill in the keys. Either open it in VS Code, or avoid echoing the
+  values at all:
+
+    python3 scripts/import_env.py --set ANTHROPIC_API_KEY
+    python3 scripts/import_env.py --set GROQ_API_KEY
+    python3 scripts/import_env.py --set ELEVENLABS_API_KEY
+
+  If your real .env lives elsewhere, point at it directly:
+
+    $0 ${STACK} ${REGION} ~/path/to/your/.env
+
+MSG
+    exit 2
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+    cat >&2 <<'MSG'
+
+ERROR: AWS CLI v2 not found.
+
+  macOS:   brew install awscli
+  Linux:   curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o a.zip \
+           && unzip -q a.zip && sudo ./aws/install
+  Windows: winget install Amazon.AWSCLI
+
+  Then run 'aws configure' and re-run this script.
+
+MSG
+    exit 2
+fi
 
 # Fail early and clearly if credentials are not configured.
-if ! aws sts get-caller-identity --region "$REGION" >/dev/null 2>&1; then
-    echo "ERROR: AWS credentials not working for region ${REGION}." >&2
+if ! CALLER="$(aws sts get-caller-identity --region "$REGION" --query 'Arn' --output text 2>&1)"; then
+    echo "" >&2
+    echo "ERROR: AWS credentials are not working for region ${REGION}." >&2
+    echo "       ${CALLER}" >&2
     echo "       Run 'aws configure' or export AWS_PROFILE first." >&2
+    echo "" >&2
     exit 2
 fi
 
@@ -82,7 +128,7 @@ if [ "$ENV_FILE" = "--check" ]; then
 fi
 
 # ---- upload mode ---------------------------------------------------------
-[ -f "$ENV_FILE" ] || { echo "ERROR: no such file: $ENV_FILE" >&2; exit 2; }
+# Existence was already checked above, before any AWS call.
 
 # Refuse a world-readable .env: if others can read it locally, fix that first.
 PERMS="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null || echo '')"

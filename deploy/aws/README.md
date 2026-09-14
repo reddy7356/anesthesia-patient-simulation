@@ -13,13 +13,43 @@ anyone else's sandbox.**
 
 On your local machine (the one with VS Code and your `.env`):
 
-1. **AWS CLI v2** — `aws --version` should print `aws-cli/2.x`
-   ([install](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
-2. **Credentials** — `aws configure`, then check with `aws sts get-caller-identity`
-3. **Session Manager plugin** (optional but recommended — gives you a shell
-   without opening SSH at all)
-   ([install](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html))
-4. **An EC2 key pair** in your target region — EC2 → Network & Security → Key Pairs
+**1. AWS CLI v2** — `aws --version` should print `aws-cli/2.x`
+
+```bash
+# macOS
+brew install awscli
+
+# Linux
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o a.zip
+unzip -q a.zip && sudo ./aws/install && rm -rf a.zip aws
+
+# Windows
+winget install Amazon.AWSCLI
+```
+
+**2. Credentials**
+
+```bash
+aws configure                    # access key id + secret, region, json
+aws sts get-caller-identity      # must print your account/ARN
+```
+
+Get an access key from IAM → Users → your user → Security credentials →
+Create access key. Prefer a non-root IAM user.
+
+**3. An EC2 key pair** in your target region (key pairs are **per-region**):
+
+```bash
+aws ec2 create-key-pair --key-name malli --region us-east-1 \
+  --query KeyMaterial --output text > ~/.ssh/malli.pem
+chmod 400 ~/.ssh/malli.pem
+```
+
+**4. Session Manager plugin** (optional but recommended — shell without SSH)
+([install](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html))
+
+`deploy.sh` checks all of the above and tells you exactly what is missing
+before it creates anything.
 
 ---
 
@@ -40,15 +70,34 @@ cd anesthesia-patient-simulation
 This auto-detects your public IP and restricts SSH to **only** that address.
 Bootstrap takes 3–5 minutes. No secrets are involved in this step.
 
-## Step 3 — put your `.env` into encrypted SSM
+## Step 3 — create your local `.env`
 
-This is the step you were asking about. Your `.env` stays on your machine —
-the script reads it locally and writes each value into AWS SSM as an encrypted
-`SecureString`. Nothing is displayed.
+A fresh clone has **no `.env`** — it is gitignored on purpose, so a credential
+can never be committed. Create it:
 
 ```bash
+cp .env.example .env
 chmod 600 .env
+```
+
+Then fill in the keys, either in VS Code or without echoing the values:
+
+```bash
+python3 scripts/import_env.py --set ANTHROPIC_API_KEY
+python3 scripts/import_env.py --set GROQ_API_KEY
+python3 scripts/import_env.py --set ELEVENLABS_API_KEY
+```
+
+Already have a `.env` elsewhere? Skip this and point at it in step 4.
+
+## Step 4 — push it into encrypted SSM
+
+Your `.env` stays on your machine — the script reads it locally and writes each
+value into AWS SSM as an encrypted `SecureString`. Nothing is displayed.
+
+```bash
 ./deploy/aws/put_secrets.sh psim us-east-1 .env
+# or:  ./deploy/aws/put_secrets.sh psim us-east-1 ~/elsewhere/.env
 ```
 
 Output shows masked fingerprints only:
@@ -66,7 +115,7 @@ Verify any time:
 ./deploy/aws/put_secrets.sh psim us-east-1 --check
 ```
 
-## Step 4 — start the patient
+## Step 5 — start the patient
 
 ```bash
 aws ssm start-session --target <instance-id> --region us-east-1

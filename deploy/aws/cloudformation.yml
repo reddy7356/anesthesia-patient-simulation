@@ -11,6 +11,18 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Existing EC2 key pair, used for SSH from your laptop.
 
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: >
+      VPC to launch into. deploy.sh fills this with your default VPC.
+      Required because egress rules are only valid on a VPC security group.
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Subnet to launch into. Must be in VpcId and must auto-assign public IPs
+      (a default subnet does). deploy.sh picks one for you.
+
   MyIpCidr:
     Type: String
     Description: >
@@ -43,7 +55,7 @@ Parameters:
 Resources:
 
   # --- Network -------------------------------------------------------------
-  # NOTE: the parameters themselves are deliberately NOT created here.
+  # NOTE: the SSM parameters themselves are deliberately NOT created here.
   # CloudFormation cannot create SecureString parameters, and SSM refuses to
   # change an existing parameter's type, so a String placeholder could never
   # be upgraded to SecureString later. deploy/aws/put_secrets.sh creates them
@@ -54,6 +66,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Patient simulation host - SSH from one address only.
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -109,11 +122,11 @@ Resources:
                   - ssm:GetParameter
                   - ssm:GetParameters
                   - ssm:GetParametersByPath
-                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/psim/${AWS::StackName}/*'
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/psim/${AWS::StackName}/*'
               # Required to decrypt SecureString values.
               - Effect: Allow
                 Action: kms:Decrypt
-                Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/ssm'
+                Resource: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/ssm'
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-role'
@@ -132,6 +145,7 @@ Resources:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
       SecurityGroupIds:
         - !GetAtt SecurityGroup.GroupId
       BlockDeviceMappings:
@@ -144,10 +158,17 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}'
-      # user-data is world-readable from inside the instance metadata service
-      # and is stored in plaintext by EC2. It therefore contains NO secrets:
-      # only the repo checkout, system deps, and a fetch script that reads SSM
-      # at run time under the instance role.
+      # user-data is readable via the instance metadata service and is stored
+      # in plaintext by EC2. It therefore contains NO secrets: only the repo
+      # checkout, system deps, and a fetch script that reads SSM at run time
+      # under the instance role.
+      #
+      # IMPORTANT: this block is an Fn::Sub, so CloudFormation substitutes
+      # every ${...} BEFORE the shell ever sees it. CFN values we DO want
+      # injected (${RepoBranch}, ${AWS::Region}, ...) are written plainly;
+      # SHELL variables must be escaped as ${!VAR} or the stack fails to
+      # create with "Template error: unresolved variable". Unbraced $VAR and
+      # $(...) are untouched by Fn::Sub and need no escaping.
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -157,13 +178,13 @@ Resources:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -y
           # portaudio19-dev is needed by sounddevice, which livekit-agents
-          # imports. A headless box has no audio device, but the library must
-          # still load or `import livekit.agents` fails outright.
+          # imports at module level. A headless box has no audio device, but
+          # the library must still load or `import livekit.agents` fails.
           apt-get install -y \
               python3-venv python3-dev build-essential git jq unzip curl \
               portaudio19-dev libsndfile1 ffmpeg
 
-          # AWS CLI v2 (the snap/apt versions are unreliable on 24.04).
+          # AWS CLI v2 (the apt/snap builds are unreliable on 24.04).
           curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
           unzip -q /tmp/awscliv2.zip -d /tmp
           /tmp/aws/install --update
@@ -175,16 +196,17 @@ Resources:
           sudo -u ubuntu python3 -m venv .venv
           sudo -u ubuntu .venv/bin/pip install --quiet --upgrade pip
           sudo -u ubuntu .venv/bin/pip install --quiet -r requirements.txt
+          install -d -o ubuntu -g ubuntu /opt/psim/app/logs
 
-          # Fetch secrets from SSM into a 0600 .env owned by ubuntu.
-          # Written as a script (not inlined here) so it can be re-run after
-          # you rotate a key, without redeploying the stack.
+          # Pull secrets from SSM into a 0600 .env. Kept as its own script so
+          # it can be re-run after you rotate a key, with no stack update.
+          # Note this script does NOT use `set -x`, so values are never traced
+          # into the bootstrap log.
           cat > /usr/local/bin/psim-fetch-env <<'FETCH'
           #!/bin/bash
-          # Pull this stack's SecureString parameters into /opt/psim/app/.env
           set -euo pipefail
-          PREFIX="/psim/STACK_NAME_PLACEHOLDER"
-          REGION="REGION_PLACEHOLDER"
+          PREFIX="/psim/${AWS::StackName}"
+          REGION="${AWS::Region}"
           ENV_FILE="/opt/psim/app/.env"
 
           umask 077
@@ -193,7 +215,7 @@ Resources:
 
           {
             echo "# Generated by psim-fetch-env at $(date -Is)."
-            echo "# Source of truth is SSM ${PREFIX}/*. Do not edit by hand."
+            echo "# Source of truth is SSM ${!PREFIX}/*. Do not edit by hand."
             echo "PSIM_SCENARIO=case_001"
             echo "PSIM_MODEL=claude-opus-4-8"
             echo "PSIM_PORT=8091"
@@ -201,35 +223,39 @@ Resources:
             echo "PSIM_LOG_DIR=logs"
           } > "$TMP"
 
-          # --with-decryption is what turns SecureString ciphertext back into
-          # the value; it requires the kms:Decrypt grant in the instance role.
+          MISSING=0
+          # --with-decryption turns SecureString ciphertext back into the
+          # value; it needs the kms:Decrypt grant in the instance role.
           for KEY in ANTHROPIC_API_KEY GROQ_API_KEY ELEVENLABS_API_KEY \
                      LIVEKIT_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET; do
             VAL="$(aws ssm get-parameter \
-                     --name "${PREFIX}/${KEY}" \
+                     --name "${!PREFIX}/${!KEY}" \
                      --with-decryption \
-                     --region "${REGION}" \
+                     --region "${!REGION}" \
                      --query 'Parameter.Value' \
                      --output text 2>/dev/null || echo '')"
             if [ -z "$VAL" ] || [ "$VAL" = "None" ]; then
-              echo "WARNING: ${KEY} not set in SSM" >&2
+              echo "WARNING: ${!KEY} not set in SSM ${!PREFIX}/" >&2
+              MISSING=$((MISSING + 1))
               VAL=""
             fi
-            printf '%s=%s\n' "$KEY" "$VAL" >> "$TMP"
+            printf '%s=%s\n' "${!KEY}" "$VAL" >> "$TMP"
           done
 
-          install -m 600 -o ubuntu -g ubuntu "$TMP" "$ENV_FILE"
-          echo "Wrote ${ENV_FILE} (mode 600). Values NOT displayed."
+          install -m 600 -o ubuntu -g ubuntu "$TMP" "${!ENV_FILE}"
+          echo "Wrote ${!ENV_FILE} (mode 600). Values NOT displayed."
+          if [ "$MISSING" -gt 0 ]; then
+            echo "$MISSING value(s) missing. Run put_secrets.sh from your laptop first." >&2
+          fi
           FETCH
-
-          sed -i "s|STACK_NAME_PLACEHOLDER|${AWS::StackName}|g" /usr/local/bin/psim-fetch-env
-          sed -i "s|REGION_PLACEHOLDER|${AWS::Region}|g" /usr/local/bin/psim-fetch-env
           chmod 755 /usr/local/bin/psim-fetch-env
+
+          # Expected to warn on first boot: the keys are not in SSM yet.
           /usr/local/bin/psim-fetch-env || true
 
-          # systemd unit for the LiveKit worker. Not enabled by default: the
-          # patient should start when a session is actually booked, and the
-          # keys may not be in SSM yet at first boot.
+          # systemd unit for the LiveKit worker. NOT enabled here on purpose:
+          # the patient should start when a session is actually booked, and
+          # the credentials may not exist yet at first boot.
           cat > /etc/systemd/system/psim.service <<'UNIT'
           [Unit]
           Description=Anesthesia patient simulation (LiveKit worker)
@@ -252,10 +278,9 @@ Resources:
           WantedBy=multi-user.target
           UNIT
 
-          install -d -o ubuntu -g ubuntu /opt/psim/app/logs
           systemctl daemon-reload
-
           echo "BOOTSTRAP COMPLETE" > /opt/psim/READY
+          chown ubuntu:ubuntu /opt/psim/READY
 
 Outputs:
   InstanceId:
@@ -271,7 +296,7 @@ Outputs:
     Value: !Sub 'ssh ubuntu@${Instance.PublicIp}'
 
   SsmSessionCommand:
-    Description: Shell without opening SSH at all (needs AWS CLI + Session Manager plugin).
+    Description: Shell without opening SSH at all (needs the Session Manager plugin).
     Value: !Sub 'aws ssm start-session --target ${Instance} --region ${AWS::Region}'
 
   SecretsPathPrefix:
