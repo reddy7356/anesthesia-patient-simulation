@@ -90,6 +90,30 @@ pip install -r requirements.txt
 cp .env.example .env         # then fill in the keys
 ```
 
+### Moving keys in without exposing them
+
+`.env` is gitignored and never committed. To get credentials into it without
+the values appearing in a terminal, a chat transcript, or shell history, use
+the importer instead of editing the file by hand:
+
+```bash
+# one key at a time — input is hidden (getpass), nothing is echoed
+.venv/bin/python scripts/import_env.py --set GROQ_API_KEY
+
+# or bulk-import a KEY=VALUE file you dropped in the sandbox,
+# then shred the source
+.venv/bin/python scripts/import_env.py --from /mnt/aidrive/psim_env.txt
+shred -u /mnt/aidrive/psim_env.txt
+
+# confirm what is loaded — secrets shown only as length + sha256 prefix
+.venv/bin/python scripts/import_env.py --check
+```
+
+The importer writes `.env` with mode `0600`, keeps existing comments and
+unrecognized keys, ignores anything that is not a known `PSIM_*`/provider
+variable, and prints secrets only as a masked fingerprint. Never paste a live
+key into a chat message or a `git`-tracked file.
+
 ## Test it by typing first (no sim room needed)
 
 ```bash
