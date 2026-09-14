@@ -70,20 +70,33 @@ fi
 
 if ! command -v aws >/dev/null 2>&1; then
     HERE_SEC="$(cd "$(dirname "$0")" && pwd)"
-    cat >&2 <<MSG
+    APT_CAND=""
+    command -v apt-cache >/dev/null 2>&1 && \
+        APT_CAND="$(apt-cache policy awscli 2>/dev/null | awk '/Candidate:/{print $2}')"
 
-ERROR: AWS CLI v2 not found.
-
-  Install it with the bundled installer:
-
-      ${HERE_SEC}/install_aws_cli.sh              # system-wide, uses sudo
-      ${HERE_SEC}/install_aws_cli.sh --user       # into ~/.local, no sudo
-
-  On Windows (outside WSL):  winget install Amazon.AWSCLI
-
-  Then run 'aws configure' and re-run this script.
-
-MSG
+    echo "" >&2
+    echo "ERROR: AWS CLI v2 not found." >&2
+    echo "" >&2
+    case "$APT_CAND" in
+        2.*)
+            echo "  RUN THIS -- your distro packages AWS CLI v${APT_CAND}:" >&2
+            echo "" >&2
+            echo "      sudo apt install awscli" >&2
+            echo "" >&2
+            echo "  (Do NOT use 'snap install aws-cli' -- that is v1.)" >&2
+            ;;
+        *)
+            echo "  RUN THIS -- the bundled installer:" >&2
+            echo "" >&2
+            echo "      ${HERE_SEC}/install_aws_cli.sh              # system-wide, uses sudo" >&2
+            echo "      ${HERE_SEC}/install_aws_cli.sh --user       # into ~/.local, no sudo" >&2
+            echo "" >&2
+            echo "  On Windows (outside WSL):  winget install Amazon.AWSCLI" >&2
+            ;;
+    esac
+    echo "" >&2
+    echo "  Then run 'aws configure' and re-run this script." >&2
+    echo "" >&2
     exit 2
 fi
 

@@ -13,10 +13,20 @@ anyone else's sandbox.**
 
 On your local machine (the one with VS Code and your `.env`):
 
-**1. AWS CLI v2** — `aws --version` should print `aws-cli/2.x`
+**1. AWS CLI v2** — `aws --version` must print `aws-cli/**2**.x`
 
-Use the bundled installer. It detects your CPU architecture, installs `unzip`
-if missing, handles macOS vs Linux, and is safe to re-run:
+On Ubuntu 24.04+ / Debian 13+, apt ships v2, so this is all you need:
+
+```bash
+sudo apt install awscli
+```
+
+⚠️ **Do not use `snap install aws-cli`** — that is version **1.x**, which this
+project does not support, and it shadows a later v2 install on your `PATH`.
+
+Anywhere else, use the bundled installer. It checks whether apt has a real v2
+first, otherwise fetches the official build — detecting CPU architecture,
+installing `unzip` if missing, and handling macOS. Safe to re-run:
 
 ```bash
 ./deploy/aws/install_aws_cli.sh            # system-wide (uses sudo)

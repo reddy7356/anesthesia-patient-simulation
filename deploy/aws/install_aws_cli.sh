@@ -62,6 +62,48 @@ if [ "$OS" != "Linux" ]; then
     exit 2
 fi
 
+# ---- fast path: distro package, IF it is really v2 ----------------------
+# Ubuntu 24.04+ and Debian 13+ ship awscli 2.x, which is one apt command
+# instead of a download-and-unpack dance. Older releases ship 1.x, which is
+# NOT good enough and would shadow a later v2 install on PATH -- so the
+# candidate version is checked before trusting it.
+#
+# NOTE: `snap install aws-cli` is version 1.x and is a trap; it is never
+# used here.
+if [ "$MODE" != "--user" ] && have apt-get && have apt-cache; then
+    CAND="$(apt-cache policy awscli 2>/dev/null | awk '/Candidate:/{print $2}')"
+    case "$CAND" in
+        2.*)
+            echo "Your distro packages AWS CLI v${CAND} -- installing via apt (fastest path)."
+            if sudo apt-get install -y awscli; then
+                hash -r 2>/dev/null || true
+                if aws --version 2>&1 | grep -q 'aws-cli/2\.'; then
+                    echo ""
+                    aws --version
+                    cat <<'EOF'
+
+Done. Next steps:
+
+  aws configure                    # access key id, secret, region (us-east-1)
+  aws sts get-caller-identity      # should print your account and ARN
+
+Get an access key at:
+  IAM -> Users -> your user -> Security credentials -> Create access key
+
+EOF
+                    exit 0
+                fi
+            fi
+            echo "apt install did not yield a working v2; falling back to the official installer." >&2
+            ;;
+        1.*)
+            echo "NOTE: your distro only packages AWS CLI v${CAND} (too old)."
+            echo "      Using the official v2 installer instead."
+            echo "      Do NOT 'sudo snap install aws-cli' -- that is v1 as well."
+            ;;
+    esac
+fi
+
 # ---- Linux: pick the right build for this CPU ---------------------------
 case "$ARCH" in
     x86_64|amd64)  PKG_ARCH="x86_64" ;;

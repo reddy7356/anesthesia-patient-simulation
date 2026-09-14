@@ -44,21 +44,43 @@ if [ -n "$MISSING" ]; then
     echo "" >&2
     echo "ERROR: missing prerequisites:" >&2
     printf '%b\n' "$MISSING" >&2
-    cat >&2 <<MSG
+    APT_CAND=""
+    command -v apt-cache >/dev/null 2>&1 && \
+        APT_CAND="$(apt-cache policy awscli 2>/dev/null | awk '/Candidate:/{print $2}')"
 
-  FIX IT WITH THE BUNDLED INSTALLER (handles CPU arch, missing unzip,
+    echo "" >&2
+    case "$APT_CAND" in
+        2.*)
+            cat >&2 <<MSG
+  RUN THIS -- your distro packages AWS CLI v${APT_CAND}:
+
+      sudo apt install awscli
+
+  (Do NOT use 'snap install aws-cli' -- that is v1 and will not work.)
+MSG
+            ;;
+        *)
+            cat >&2 <<MSG
+  RUN THIS -- the bundled installer (handles CPU arch, missing unzip,
   macOS vs Linux, and installing without root):
 
       ${HERE}/install_aws_cli.sh              # system-wide, uses sudo
       ${HERE}/install_aws_cli.sh --user       # into ~/.local, no sudo
 
   On Windows (outside WSL):  winget install Amazon.AWSCLI
+MSG
+            ;;
+    esac
 
-  Then:
-      aws configure                   # access key id, secret, region
-      aws sts get-caller-identity     # confirm it works
+    cat >&2 <<MSG
 
-  ...and re-run this script.
+  THEN, before re-running this script:
+
+      aws configure                   # access key id, secret, us-east-1
+      aws sts get-caller-identity     # must print your account and ARN
+
+  Nothing below this point runs until 'aws' works -- every remaining step
+  needs it.
 
 MSG
     exit 2
