@@ -1,0 +1,12 @@
+{
+  "_comment": "ElevenLabs voice for THIS patient only. Used for voice modes; ignored by tools.dryrun. Find voice ids with: .venv/bin/python -m tools.voices",
+  "voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+  "model": "eleven_flash_v2_5",
+  "gender": "female",
+  "approximate_age": 42,
+  "voice_settings": {
+    "stability": 0.55,
+    "similarity_boost": 0.75,
+    "speed": 0.95
+  }
+}

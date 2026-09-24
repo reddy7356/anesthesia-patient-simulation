@@ -193,3 +193,61 @@ during an encounter and can never influence what the patient says.
 Copy `scenarios/case_001/` to `scenarios/case_002/` and rewrite the five layer
 files plus `voice.json`. No core file changes. That isolation is the whole
 point — it is the fix for the cross-stem leakage that bit the mock oral system.
+
+## Authoring a new patient
+
+Scenarios are **markdown + JSON**, not YAML. One case = one folder; adding a
+case never means touching core code.
+
+```bash
+.venv/bin/python -m tools.new_case create case_003   # copy annotated template
+# fill in the <<...>> markers
+.venv/bin/python -m tools.new_case check  case_003   # validate before running
+.venv/bin/python -m tools.dryrun          case_003
+.venv/bin/python -m tools.new_case list              # all cases
+```
+
+`check` catches unfilled `<<PLACEHOLDER>>` markers, missing layer files,
+invalid JSON, a deleted induction-fade section, and a `state.json` that says
+the patient feels fine when the case reads as symptomatic.
+
+### The eight files
+
+| File | Layer | What goes in it |
+|---|---|---|
+| `manifest.md` | — | Title, setting, learning focus |
+| `stem.md` | 1 | The body and scene, present tense; **exact** last-oral-intake times; true facts the patient does not know |
+| `patient_profile.md` | 2 | Who they are; the actual words they use for their body and drugs |
+| `patient_knowledge.md` | 3 | What they know, do **not** know, and wrongly believe |
+| `dialogue_map.md` | 4 | Domains the encounter may touch — deliberately **not** a script |
+| `behavior.md` | 5 | How they sound; response length; the induction fade |
+| `state.json` | — | How they feel at turn zero |
+| `voice.json` | — | ElevenLabs voice (voice modes only) |
+
+`stem.md`, `patient_profile.md`, `patient_knowledge.md` and `behavior.md` are
+required; the loader refuses a case without them.
+
+### Why there is no question-and-answer list
+
+A fixed Q&A script breaks the moment a resident phrases something differently,
+and it makes the patient volunteer information no real patient would offer.
+Instead, put the **facts** in layers 1–3 and the **delivery rules** in layer 5.
+The model then improvises consistently, and stays inside the knowledge
+boundary. `dialogue_map.md` lists the domains an encounter may touch and what
+each answer depends on — never the answers themselves.
+
+### The three things that make a patient feel real
+
+1. **The knowledge boundary** (`patient_knowledge.md`). Patients know their
+   symptoms and their story; they do not know their numbers, drug names, or
+   physiology. A patient who supplies an ejection fraction teaches something
+   false.
+2. **Misconceptions** (`patient_knowledge.md`, "believes"). These give the
+   resident something real to correct. In `case_002` the patient has vomited
+   and therefore believes her stomach is empty.
+3. **Withheld facts with a disclosure condition** (`stem.md`, "true facts").
+   State *what makes it come out* — asked directly, asked kindly, asked
+   privately, asked twice. This is what rewards good communication.
+
+Keep the **"Going under"** section of `behavior.md` intact: the resident must
+notice the patient going under from the patient, not from a monitor.

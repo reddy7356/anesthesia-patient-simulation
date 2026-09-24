@@ -1,0 +1,8 @@
+{
+  "conversation_stage": "before_greeting",
+  "induction_stage": "awake",
+  "oxygen_mask_status": "off",
+  "anxiety": "high",
+  "pain": "constant deep ache in the right lower belly, 7/10, sharper on any movement",
+  "nausea": "present and coming in waves, vomited twice in the last hour"
+}

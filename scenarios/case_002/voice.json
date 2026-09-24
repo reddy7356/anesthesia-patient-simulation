@@ -1,0 +1,12 @@
+{
+  "_comment": "ElevenLabs voice for Priya Raman. Placeholder: run `.venv/bin/python -m tools.voices` to pick a real voice_id before using voice modes. Ignored by tools.dryrun.",
+  "voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+  "model": "eleven_flash_v2_5",
+  "gender": "female",
+  "approximate_age": 34,
+  "voice_settings": {
+    "stability": 0.45,
+    "similarity_boost": 0.75,
+    "speed": 0.97
+  }
+}
