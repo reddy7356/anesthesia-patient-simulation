@@ -44,6 +44,13 @@ async def run(scenario_id: str) -> int:
         except EOFError:
             print()
             break
+        except KeyboardInterrupt:
+            # Ctrl-C is how a person ends an encounter. Treat it as "quit",
+            # not as a crash: asyncio.run() would otherwise turn it into a
+            # CancelledError traceback and the turn-log path and token
+            # summary below would never be printed.
+            print("\n  (interrupted)")
+            break
         if not line:
             continue
         if line.lower() in ("quit", "exit"):
@@ -70,4 +77,10 @@ async def run(scenario_id: str) -> int:
 
 if __name__ == "__main__":
     sid = sys.argv[1] if len(sys.argv) > 1 else "case_001"
-    raise SystemExit(asyncio.run(run(sid)))
+    try:
+        raise SystemExit(asyncio.run(run(sid)))
+    except KeyboardInterrupt:
+        # Belt and braces: a Ctrl-C landing while awaiting the API (rather
+        # than at the input prompt) surfaces here instead.
+        print("\n  Interrupted.")
+        raise SystemExit(130)
