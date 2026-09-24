@@ -332,3 +332,44 @@ before using a scenario with residents.
 - Keep encounters short. Cost is roughly linear in turns.
 - Voice modes add Groq (STT) and ElevenLabs (TTS) charges on top. The typed
   path bills Claude only.
+
+## Reviewing a finished encounter
+
+Two offline tools read a turn log. Neither makes an API call and neither can
+influence a live encounter.
+
+```bash
+# audit the PATIENT's realism
+.venv/bin/python -m tools.review_log logs/turns_case_002_*.jsonl
+.venv/bin/python -m tools.review_log --transcript logs/turns_case_002_*.jsonl
+
+# score the CLINICIAN's communication
+.venv/bin/python -m observer.checklist logs/turns_case_002_*.jsonl
+```
+
+`review_log` reports turns, how often the patient spoke, average and longest
+answer in words, median and worst latency, and then flags:
+
+| Flag | Why it matters |
+|---|---|
+| **STATE LEAK** | `<state>` text reached the spoken utterance. The one unambiguous bug. |
+| clinician vocabulary | Patient used jargon it should not know ("preoxygenation", "ejection fraction"). |
+| examiner phrase | Patient praised or graded the resident. The failure this project exists to avoid. |
+| long answer | Over the soft word ceiling; real patients are brief. |
+| induction narrated | "I'm feeling sleepy" — people do not narrate their own induction. |
+| talking while asleep | Spoke when state said asleep; breaks reading depth from the patient. |
+| verbatim repeat | Same answer twice — memory failure. |
+| API call failed | The fallback line was spoken because the Anthropic call raised. |
+
+Two things it deliberately does **not** flag, because both are correct
+behaviour that earlier versions of the tool misreported:
+
+* `questions_patient_has_asked` is **cumulative** — it carries every question
+  forward so the prompt can forbid re-asking. A question asked once on turn 12
+  of a 28-turn log is still listed at turn 28; that is memory working.
+* Interrupted turns (`interrupted: true`) log the same answer two or three
+  times under one turn number, because a barge-in aborts the utterance and the
+  turn is re-attempted. That is barge-in working.
+
+A healthy `case_001` log looks like ~6 words average, longest under ~20, and
+no findings.
