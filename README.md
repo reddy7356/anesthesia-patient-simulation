@@ -251,3 +251,84 @@ each answer depends on — never the answers themselves.
 
 Keep the **"Going under"** section of `behavior.md` intact: the resident must
 notice the patient going under from the patient, not from a monitor.
+
+## Cutting the cost of a run
+
+The system prompt is **resent on every turn**, so its size is multiplied by the
+number of turns in an encounter. Measure any case:
+
+```bash
+.venv/bin/python -m tools.new_case cost case_002
+```
+
+`tools.dryrun` also prints token accounting when an encounter ends, so the
+effect of any change is visible rather than assumed.
+
+### 1. Prompt caching — already on, nothing to do
+
+The prompt is built as two blocks: a stable prefix (engine rules + the five
+scenario layers, ~97% of it) and a per-turn tail (memory, induction state).
+The prefix is byte-identical every turn and carries a cache breakpoint, so
+after the first call it bills at **1/10** the input rate.
+
+Measured on `case_002`:
+
+| | input tokens billed |
+|---|---|
+| 5-turn encounter, cold cache | ~19,800 of 48,200 — **59% less** |
+| 3-turn encounter, warm cache | ~4,400 of 28,100 — **85% less** |
+
+The cache lives about 5 minutes, so back-to-back practice sessions on the same
+case are the cheapest of all. **Corollary: switching cases every turn is the
+most expensive way to run this** — each switch is a fresh cache write. Finish
+with one patient before moving to the next.
+
+### 2. Keep the scenario layers tight
+
+Per-turn cost of `case_002`, which is deliberately verbose:
+
+```
+engine rules (same every case)       1054
+stem                                  878
+profile                               828
+knowledge                             929
+dialogue_map                         1020
+behavior                             1355   <- largest
+system prompt, per turn              6629
+```
+
+`case_001` runs at ~4,300. Both work. Under ~900 tokens per layer is
+comfortable; much past that and you are paying every turn for prose the model
+mostly ignores.
+
+What to cut first, in order:
+1. **Repetition between layers.** A fact belongs in exactly one layer. If the
+   meal time is in `stem.md`, `dialogue_map.md` needs only "the fasting
+   question" — not the answer again.
+2. **`dialogue_map.md` detail.** It lists *domains*, not answers. One or two
+   lines each.
+3. **Long "Never" lists in `behavior.md`.** Keep the induction fade intact and
+   trim the rest.
+
+Do **not** cut: the knowledge boundary (`patient_knowledge.md`) or the
+**"Going under"** section. Those are what make the simulation correct.
+
+### 3. Use a cheaper model for scenario development
+
+```bash
+PSIM_MODEL=claude-sonnet-4-5-20250929 .venv/bin/python -m tools.dryrun case_002
+```
+
+Verified to hold short answers, the fasting understatement and the knowledge
+boundary ("Sorry — I don't know what that is" to an ejection-fraction
+question). Good for iterating on a new case; re-test on the default model
+before using a scenario with residents.
+
+### 4. Other levers
+
+- `PSIM_MAX_TOKENS` (default 1000) caps output. A patient turn plus its state
+  block rarely exceeds ~250, so lowering it costs nothing and bounds a runaway
+  reply. Do not go below ~400 — the state block needs room.
+- Keep encounters short. Cost is roughly linear in turns.
+- Voice modes add Groq (STT) and ElevenLabs (TTS) charges on top. The typed
+  path bills Claude only.

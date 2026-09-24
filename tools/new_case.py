@@ -9,6 +9,9 @@
     # list every case the launcher can see
     .venv/bin/python -m tools.new_case list
 
+    # what does this case cost per turn? (needs ANTHROPIC_API_KEY)
+    .venv/bin/python -m tools.new_case cost case_003
+
 `check` is the useful one. It catches the mistakes that otherwise only show up
 as a strange patient mid-encounter: an unfilled <<PLACEHOLDER>>, a missing
 layer file, invalid JSON, or a state.json that says the patient feels fine
@@ -212,6 +215,74 @@ def cmd_check(case_id: str) -> int:
     return 0
 
 
+def cmd_cost(case_id: str) -> int:
+    """Token cost of one turn of this case, layer by layer.
+
+    The system prompt is resent on EVERY turn, so its size is multiplied by
+    the number of turns in an encounter. Trimming a layer pays back each turn.
+    """
+    root = SCENARIOS / case_id
+    if not root.is_dir():
+        print(f"ERROR: no scenario '{case_id}'", file=sys.stderr)
+        return 2
+
+    sys.path.insert(0, str(ROOT))
+    try:
+        import anthropic
+
+        from app.config import MODEL
+        from patient.patient_prompt import BASE_RULES, build_system_blocks
+        from patient.patient_state import PatientState
+        from patient.scenario import load_scenario
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    client = anthropic.Anthropic()
+
+    def count(text: str) -> int:
+        return client.messages.count_tokens(
+            model=MODEL, system=text or "x", messages=[{"role": "user", "content": "x"}]
+        ).input_tokens
+
+    try:
+        sc = load_scenario(case_id, SCENARIOS)
+        static, volatile = build_system_blocks(sc, PatientState())
+        total = count(static + volatile)
+        base = count(BASE_RULES)
+    except Exception as e:
+        print(f"ERROR: could not count tokens ({e})", file=sys.stderr)
+        return 2
+
+    print(f"\n  Cost profile: {case_id}\n")
+    print(f"  {'engine rules (same every case)':<34} {base:>6}")
+    rows = []
+    for fn, label in (
+        ("stem.md", "stem"),
+        ("patient_profile.md", "profile"),
+        ("patient_knowledge.md", "knowledge"),
+        ("dialogue_map.md", "dialogue_map"),
+        ("behavior.md", "behavior"),
+    ):
+        p = root / fn
+        n = count(p.read_text(encoding="utf-8")) if p.is_file() else 0
+        rows.append((label, n))
+        print(f"  {label:<34} {n:>6}")
+    print(f"  {'-' * 34} {'-' * 6}")
+    print(f"  {'system prompt, per turn':<34} {total:>6}")
+
+    biggest = max(rows, key=lambda r: r[1])
+    cached = base + sum(n for _, n in rows)
+    print(f"\n  With prompt caching (automatic), turns after the first bill")
+    print(f"  the stable ~{cached} tokens at 1/10 rate -- roughly")
+    print(f"  {cached - int(cached * 0.1):,} tokens/turn cheaper.\n")
+    print(f"  Largest layer: {biggest[0]} ({biggest[1]} tokens).")
+    if biggest[1] > 900:
+        print("  That is on the heavy side -- see the cost section of the README.")
+    print()
+    return 0
+
+
 def cmd_list() -> int:
     if not SCENARIOS.is_dir():
         print(f"ERROR: {SCENARIOS} not found", file=sys.stderr)
@@ -242,12 +313,15 @@ def main(argv: list[str]) -> int:
     cmd = argv[1]
     if cmd == "list":
         return cmd_list()
-    if cmd in ("create", "check"):
+    if cmd in ("create", "check", "cost"):
         if len(argv) < 3:
             print(f"ERROR: {cmd} needs a scenario id, e.g. '{cmd} case_003'", file=sys.stderr)
             return 2
-        return cmd_create(argv[2]) if cmd == "create" else cmd_check(argv[2])
-    print(f"ERROR: unknown command '{cmd}'. Use create, check or list.", file=sys.stderr)
+        return {"create": cmd_create, "check": cmd_check, "cost": cmd_cost}[cmd](argv[2])
+    print(
+        f"ERROR: unknown command '{cmd}'. Use create, check, cost or list.",
+        file=sys.stderr,
+    )
     return 2
 
 

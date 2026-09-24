@@ -63,6 +63,8 @@ async def run(scenario_id: str) -> int:
     print("\n  Encounter ended.")
     if rt.turn_log.path:
         print(f"  Turn log: {rt.turn_log.path}")
+    # Token accounting, so the cost of a run is visible rather than guessed.
+    print(f"  Tokens: {rt.claude.usage_report()}")
     return 0
 
 
