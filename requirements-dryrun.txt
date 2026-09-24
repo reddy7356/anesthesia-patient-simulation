@@ -1,0 +1,16 @@
+# Minimal dependencies for the TYPED path only:
+#
+#     .venv/bin/python -m tools.dryrun case_001
+#     .venv/bin/python tests/test_contract.py
+#
+# tools.dryrun imports neither livekit nor sounddevice (verified), so none of
+# the voice stack is needed to talk to the patient by typing. That matters on
+# a server: the full requirements.txt pulls livekit-agents, onnxruntime and
+# sounddevice, and sounddevice fails to import at all unless the system
+# PortAudio library is present -- which a headless box usually lacks.
+#
+# Use requirements.txt instead for voice (LiveKit room or laptop console).
+#
+# Versions pinned to match requirements.txt exactly.
+anthropic==0.109.1
+python-dotenv==1.2.2

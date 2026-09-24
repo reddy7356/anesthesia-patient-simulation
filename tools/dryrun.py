@@ -24,7 +24,8 @@ from patient.scenario import load_scenario
 
 
 async def run(scenario_id: str) -> int:
-    require_env()
+    # Typed path: no STT, no TTS, so only the Claude key is required.
+    require_env(voice=False)
     setup_file_logging()
     logging.getLogger().setLevel(logging.WARNING)  # keep the transcript readable
 
@@ -42,6 +43,13 @@ async def run(scenario_id: str) -> int:
             line = input("  DOCTOR  > ").strip()
         except EOFError:
             print()
+            break
+        except KeyboardInterrupt:
+            # Ctrl-C is how a person ends an encounter. Treat it as "quit",
+            # not as a crash: asyncio.run() would otherwise turn it into a
+            # CancelledError traceback and the turn-log path and token
+            # summary below would never be printed.
+            print("\n  (interrupted)")
             break
         if not line:
             continue
@@ -62,9 +70,17 @@ async def run(scenario_id: str) -> int:
     print("\n  Encounter ended.")
     if rt.turn_log.path:
         print(f"  Turn log: {rt.turn_log.path}")
+    # Token accounting, so the cost of a run is visible rather than guessed.
+    print(f"  Tokens: {rt.claude.usage_report()}")
     return 0
 
 
 if __name__ == "__main__":
     sid = sys.argv[1] if len(sys.argv) > 1 else "case_001"
-    raise SystemExit(asyncio.run(run(sid)))
+    try:
+        raise SystemExit(asyncio.run(run(sid)))
+    except KeyboardInterrupt:
+        # Belt and braces: a Ctrl-C landing while awaiting the API (rather
+        # than at the input prompt) surfaces here instead.
+        print("\n  Interrupted.")
+        raise SystemExit(130)

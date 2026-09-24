@@ -22,7 +22,7 @@ from app.config import SOFT_MAX_WORDS, STREAM_TTS
 from app.turn_log import TurnLog
 from app.utterance_stream import UtteranceStreamer
 from llm.claude_client import FALLBACK, RETRY_NUDGE, ClaudePatient
-from patient.patient_prompt import build_system_prompt
+from patient.patient_prompt import build_system_blocks
 from patient.patient_state import (
     PatientState, parse_state_block, salvage_untagged, strip_tags_for_tts,
 )
@@ -113,7 +113,10 @@ class PatientRuntime:
         else:
             self.history.append({"role": "user", "content": content})
         self._trim()
-        prompt = build_system_prompt(
+        # Two blocks, not one string: the first is byte-identical every turn
+        # and gets a prompt-cache breakpoint in the client. See
+        # patient_prompt.build_system_blocks.
+        prompt = build_system_blocks(
             self.scenario, self.state,
             allow_silence=self.allow_silence,
             was_silent_last_turn=self._was_silent_last_turn,
@@ -200,7 +203,10 @@ class PatientRuntime:
             # Contract miss with markup in it -- unsafe to salvage, so ask once
             # more with an explicit correction. Costs latency only on failure.
             logger.warning("CONTRACT MISS -- retrying once with an explicit nudge")
-            raw = await self.claude.complete(system_prompt + RETRY_NUDGE, self.history)
+            # Append the nudge to the VOLATILE tail so the cached prefix is
+            # still matched on the retry.
+            static, tail = system_prompt
+            raw = await self.claude.complete((static, tail + RETRY_NUDGE), self.history)
             spoken = strip_tags_for_tts(raw) or salvage_untagged(raw)
             self.last_raw = raw
         if not spoken and deliberate_silence:

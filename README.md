@@ -90,11 +90,70 @@ pip install -r requirements.txt
 cp .env.example .env         # then fill in the keys
 ```
 
+### Moving keys in without exposing them
+
+`.env` is gitignored and never committed. To get credentials into it without
+the values appearing in a terminal, a chat transcript, or shell history, use
+the importer instead of editing the file by hand:
+
+```bash
+# one key at a time — input is hidden (getpass), nothing is echoed
+.venv/bin/python scripts/import_env.py --set GROQ_API_KEY
+
+# or bulk-import a KEY=VALUE file you dropped in the sandbox,
+# then shred the source
+.venv/bin/python scripts/import_env.py --from /mnt/aidrive/psim_env.txt
+shred -u /mnt/aidrive/psim_env.txt
+
+# confirm what is loaded — secrets shown only as length + sha256 prefix
+.venv/bin/python scripts/import_env.py --check
+```
+
+The importer writes `.env` with mode `0600`, keeps existing comments and
+unrecognized keys, ignores anything that is not a known `PSIM_*`/provider
+variable, and prints secrets only as a masked fingerprint. Never paste a live
+key into a chat message or a `git`-tracked file.
+
+`--set` requires a real terminal. Where there is no tty it refuses rather than
+falling back to clear-text input, so use `--from` in that case.
+
+## Running on your own AWS host
+
+To run the worker somewhere persistent with credentials in KMS-encrypted SSM
+rather than a local file, see [`deploy/aws/README.md`](deploy/aws/README.md):
+
+```bash
+./deploy/aws/deploy.sh      psim us-east-1 YOUR_KEYPAIR   # one EC2 instance
+./deploy/aws/put_secrets.sh psim us-east-1 .env           # keys -> encrypted SSM
+```
+
+Keys travel from your machine to AWS directly; nothing sensitive appears in the
+CloudFormation template, in EC2 user-data, or in this repository. Note that
+`console` mode cannot work on a headless host (no mic or speaker) — use `dev`
+mode or `tools.dryrun` there.
+
 ## Test it by typing first (no sim room needed)
 
 ```bash
 .venv/bin/python -m tools.dryrun case_001
 ```
+
+### Typed path on a server (lightest possible install)
+
+`tools.dryrun` imports neither `livekit` nor `sounddevice`, so the whole voice
+stack is optional when you only want to type to the patient. On a headless
+Linux box this is the quickest way in, and it needs no system audio library:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dryrun.txt   # 2 packages, not 80+
+cp .env.example .env && chmod 600 .env             # then add ANTHROPIC_API_KEY
+.venv/bin/python -m tools.dryrun case_001
+```
+
+Only `ANTHROPIC_API_KEY` is required for this; STT/TTS keys are unused until
+you run voice. Install the full `requirements.txt` when you move to `dev` or
+`console` mode.
 
 Type a clinician line, read the patient's reply. `/state` shows the hidden
 state. This is where humanization is validated cheaply — answer length,
@@ -134,3 +193,183 @@ during an encounter and can never influence what the patient says.
 Copy `scenarios/case_001/` to `scenarios/case_002/` and rewrite the five layer
 files plus `voice.json`. No core file changes. That isolation is the whole
 point — it is the fix for the cross-stem leakage that bit the mock oral system.
+
+## Authoring a new patient
+
+Scenarios are **markdown + JSON**, not YAML. One case = one folder; adding a
+case never means touching core code.
+
+```bash
+.venv/bin/python -m tools.new_case create case_003   # copy annotated template
+# fill in the <<...>> markers
+.venv/bin/python -m tools.new_case check  case_003   # validate before running
+.venv/bin/python -m tools.dryrun          case_003
+.venv/bin/python -m tools.new_case list              # all cases
+```
+
+`check` catches unfilled `<<PLACEHOLDER>>` markers, missing layer files,
+invalid JSON, a deleted induction-fade section, and a `state.json` that says
+the patient feels fine when the case reads as symptomatic.
+
+### The eight files
+
+| File | Layer | What goes in it |
+|---|---|---|
+| `manifest.md` | — | Title, setting, learning focus |
+| `stem.md` | 1 | The body and scene, present tense; **exact** last-oral-intake times; true facts the patient does not know |
+| `patient_profile.md` | 2 | Who they are; the actual words they use for their body and drugs |
+| `patient_knowledge.md` | 3 | What they know, do **not** know, and wrongly believe |
+| `dialogue_map.md` | 4 | Domains the encounter may touch — deliberately **not** a script |
+| `behavior.md` | 5 | How they sound; response length; the induction fade |
+| `state.json` | — | How they feel at turn zero |
+| `voice.json` | — | ElevenLabs voice (voice modes only) |
+
+`stem.md`, `patient_profile.md`, `patient_knowledge.md` and `behavior.md` are
+required; the loader refuses a case without them.
+
+### Why there is no question-and-answer list
+
+A fixed Q&A script breaks the moment a resident phrases something differently,
+and it makes the patient volunteer information no real patient would offer.
+Instead, put the **facts** in layers 1–3 and the **delivery rules** in layer 5.
+The model then improvises consistently, and stays inside the knowledge
+boundary. `dialogue_map.md` lists the domains an encounter may touch and what
+each answer depends on — never the answers themselves.
+
+### The three things that make a patient feel real
+
+1. **The knowledge boundary** (`patient_knowledge.md`). Patients know their
+   symptoms and their story; they do not know their numbers, drug names, or
+   physiology. A patient who supplies an ejection fraction teaches something
+   false.
+2. **Misconceptions** (`patient_knowledge.md`, "believes"). These give the
+   resident something real to correct. In `case_002` the patient has vomited
+   and therefore believes her stomach is empty.
+3. **Withheld facts with a disclosure condition** (`stem.md`, "true facts").
+   State *what makes it come out* — asked directly, asked kindly, asked
+   privately, asked twice. This is what rewards good communication.
+
+Keep the **"Going under"** section of `behavior.md` intact: the resident must
+notice the patient going under from the patient, not from a monitor.
+
+## Cutting the cost of a run
+
+The system prompt is **resent on every turn**, so its size is multiplied by the
+number of turns in an encounter. Measure any case:
+
+```bash
+.venv/bin/python -m tools.new_case cost case_002
+```
+
+`tools.dryrun` also prints token accounting when an encounter ends, so the
+effect of any change is visible rather than assumed.
+
+### 1. Prompt caching — already on, nothing to do
+
+The prompt is built as two blocks: a stable prefix (engine rules + the five
+scenario layers, ~97% of it) and a per-turn tail (memory, induction state).
+The prefix is byte-identical every turn and carries a cache breakpoint, so
+after the first call it bills at **1/10** the input rate.
+
+Measured on `case_002`:
+
+| | input tokens billed |
+|---|---|
+| 5-turn encounter, cold cache | ~19,800 of 48,200 — **59% less** |
+| 3-turn encounter, warm cache | ~4,400 of 28,100 — **85% less** |
+
+The cache lives about 5 minutes, so back-to-back practice sessions on the same
+case are the cheapest of all. **Corollary: switching cases every turn is the
+most expensive way to run this** — each switch is a fresh cache write. Finish
+with one patient before moving to the next.
+
+### 2. Keep the scenario layers tight
+
+Per-turn cost of `case_002`, which is deliberately verbose:
+
+```
+engine rules (same every case)       1054
+stem                                  878
+profile                               828
+knowledge                             929
+dialogue_map                         1020
+behavior                             1355   <- largest
+system prompt, per turn              6629
+```
+
+`case_001` runs at ~4,300. Both work. Under ~900 tokens per layer is
+comfortable; much past that and you are paying every turn for prose the model
+mostly ignores.
+
+What to cut first, in order:
+1. **Repetition between layers.** A fact belongs in exactly one layer. If the
+   meal time is in `stem.md`, `dialogue_map.md` needs only "the fasting
+   question" — not the answer again.
+2. **`dialogue_map.md` detail.** It lists *domains*, not answers. One or two
+   lines each.
+3. **Long "Never" lists in `behavior.md`.** Keep the induction fade intact and
+   trim the rest.
+
+Do **not** cut: the knowledge boundary (`patient_knowledge.md`) or the
+**"Going under"** section. Those are what make the simulation correct.
+
+### 3. Use a cheaper model for scenario development
+
+```bash
+PSIM_MODEL=claude-sonnet-4-5-20250929 .venv/bin/python -m tools.dryrun case_002
+```
+
+Verified to hold short answers, the fasting understatement and the knowledge
+boundary ("Sorry — I don't know what that is" to an ejection-fraction
+question). Good for iterating on a new case; re-test on the default model
+before using a scenario with residents.
+
+### 4. Other levers
+
+- `PSIM_MAX_TOKENS` (default 1000) caps output. A patient turn plus its state
+  block rarely exceeds ~250, so lowering it costs nothing and bounds a runaway
+  reply. Do not go below ~400 — the state block needs room.
+- Keep encounters short. Cost is roughly linear in turns.
+- Voice modes add Groq (STT) and ElevenLabs (TTS) charges on top. The typed
+  path bills Claude only.
+
+## Reviewing a finished encounter
+
+Two offline tools read a turn log. Neither makes an API call and neither can
+influence a live encounter.
+
+```bash
+# audit the PATIENT's realism
+.venv/bin/python -m tools.review_log logs/turns_case_002_*.jsonl
+.venv/bin/python -m tools.review_log --transcript logs/turns_case_002_*.jsonl
+
+# score the CLINICIAN's communication
+.venv/bin/python -m observer.checklist logs/turns_case_002_*.jsonl
+```
+
+`review_log` reports turns, how often the patient spoke, average and longest
+answer in words, median and worst latency, and then flags:
+
+| Flag | Why it matters |
+|---|---|
+| **STATE LEAK** | `<state>` text reached the spoken utterance. The one unambiguous bug. |
+| clinician vocabulary | Patient used jargon it should not know ("preoxygenation", "ejection fraction"). |
+| examiner phrase | Patient praised or graded the resident. The failure this project exists to avoid. |
+| long answer | Over the soft word ceiling; real patients are brief. |
+| induction narrated | "I'm feeling sleepy" — people do not narrate their own induction. |
+| talking while asleep | Spoke when state said asleep; breaks reading depth from the patient. |
+| verbatim repeat | Same answer twice — memory failure. |
+| API call failed | The fallback line was spoken because the Anthropic call raised. |
+
+Two things it deliberately does **not** flag, because both are correct
+behaviour that earlier versions of the tool misreported:
+
+* `questions_patient_has_asked` is **cumulative** — it carries every question
+  forward so the prompt can forbid re-asking. A question asked once on turn 12
+  of a 28-turn log is still listed at turn 28; that is memory working.
+* Interrupted turns (`interrupted: true`) log the same answer two or three
+  times under one turn number, because a barge-in aborts the utterance and the
+  turn is re-attempted. That is barge-in working.
+
+A healthy `case_001` log looks like ~6 words average, longest under ~20, and
+no findings.

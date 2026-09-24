@@ -142,9 +142,44 @@ def build_system_prompt(
     allow_silence: bool = True,
     was_silent_last_turn: bool = False,
 ) -> str:
+    """The whole system prompt as one string.
+
+    See build_system_blocks() for the cacheable form. This is kept because the
+    tests and the retry path want a plain string, and because concatenating the
+    blocks must produce exactly this text.
+    """
+    static, volatile = build_system_blocks(
+        scenario, state, allow_silence, was_silent_last_turn
+    )
+    return static + volatile
+
+
+def build_system_blocks(
+    scenario: Scenario,
+    state: PatientState,
+    allow_silence: bool = True,
+    was_silent_last_turn: bool = False,
+) -> tuple[str, str]:
+    """Split the prompt into (stable prefix, per-turn tail).
+
+    The prefix -- rules plus the five scenario layers -- is byte-identical on
+    every turn of an encounter, so it can be marked for prompt caching and
+    charged at a tenth of the input rate after the first turn. It is ~97% of
+    the prompt, and the prompt is resent on every turn, so this is by far the
+    largest cost lever in the project.
+
+    The tail is everything that changes: conversation memory, the
+    already-asked-questions guard, the induction fade, and the closing
+    instruction. It must stay AFTER the prefix -- a cache hit requires an
+    exact prefix match, so a single volatile byte placed early would invalidate
+    everything following it.
+    """
+    # allow_silence is fixed for the lifetime of a run (dryrun sets it False,
+    # the voice path True), so it is safe in the cached prefix.
+    # was_silent_last_turn is NOT -- it flips per turn, so its clause is
+    # deferred to the volatile tail below. Putting it here would change the
+    # prefix mid-encounter and throw away every cache hit.
     speak = SPEAK_WITH_FRAGMENT_GUARD if allow_silence else SPEAK_ALWAYS
-    if was_silent_last_turn:
-        speak += RESUME_AFTER_SILENCE
     parts = [
         BASE_RULES,
         "\n" + speak,
@@ -162,6 +197,14 @@ def build_system_prompt(
             "This is NOT a script and NOT a checklist. Never steer the "
             "conversation toward an item that has not come up naturally.\n" + dm
         )
+
+    # --- everything above is the cacheable prefix -----------------------
+    static = "\n".join(parts)
+    parts = []
+
+    if was_silent_last_turn:
+        parts.append(RESUME_AFTER_SILENCE)
+
     parts.append(
         "\n=== WHAT HAS HAPPENED SO FAR IN THIS CONVERSATION ===\n"
         + state.as_prompt_block()
@@ -219,4 +262,6 @@ def build_system_prompt(
         "clarify, hesitate, or just acknowledge; and what is the SHORTEST "
         "natural thing a real person would say. Then say it."
     )
-    return "\n".join(parts)
+    # Leading "\n" keeps static + volatile byte-identical to the old
+    # single-string prompt, which the contract tests assert.
+    return static, "\n" + "\n".join(parts)

@@ -1,0 +1,9 @@
+{
+  "_comment": "Starting hidden state. The engine updates this every turn. Set the values that are TRUE at the moment the resident walks up. For a sick emergency patient, nausea/pain should NOT be 'none'.",
+  "conversation_stage": "before_greeting",
+  "induction_stage": "awake",
+  "oxygen_mask_status": "off",
+  "anxiety": "moderate",
+  "pain": "constant ache low on the right side, sharper when she moves",
+  "nausea": "present, comes in waves"
+}
